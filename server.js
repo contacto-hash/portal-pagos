@@ -1,6 +1,7 @@
 //
-// Minimal Payment Tracking Portal (con UI mejorada: botones, fecha/hora, footer de marca)
-// Stack: Node.js + Express + better-sqlite3 + EJS-like HTML
+// Portal Pagos — versión con formulario vertical de alta y CRUD (editar/borrar usuarios)
+// Stack: Node.js + Express + better-sqlite3 + bcrypt + helmet + csurf + better-sqlite3
+// Incluye: logout unificado, logo, UI mejorada, fecha/hora, footer de marca.
 
 const express = require("express");
 const session = require("express-session");
@@ -26,8 +27,6 @@ app.use(
   })
 );
 app.use(csrf());
-
-// Servir archivos estáticos (logo, css, etc.)
 app.use(express.static(path.join(__dirname, "public")));
 
 // ---------- DB bootstrap ----------
@@ -40,13 +39,11 @@ CREATE TABLE IF NOT EXISTS users (
   status TEXT NOT NULL DEFAULT 'NO INICIADA',
   access_code_hash TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS admins (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -85,16 +82,13 @@ function requireUser(req, res, next) {
   if (req.session?.userId) return next();
   return res.redirect("/login");
 }
-
 function nowSV() {
   try {
     return new Date().toLocaleString("es-SV", { timeZone: "America/El_Salvador", hour12: false });
-  } catch {
-    return new Date().toLocaleString();
-  }
+  } catch { return new Date().toLocaleString(); }
 }
 
-function layout(title, body, { csrfToken, admin, user } = {}) {
+function layout(title, body, { admin, user } = {}) {
   const timestamp = nowSV();
   return `<!doctype html>
 <html lang="es"><head>
@@ -102,38 +96,29 @@ function layout(title, body, { csrfToken, admin, user } = {}) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <style>
-  :root{
-    --bg:#f6f7fb; --panel:#fff; --border:#eee; --text:#111; --muted:#666;
-    --brand:#111; --accent:#111; --accent-ghost:#fff;
-    --primary:#111; --secondary:#fff;
-  }
+  :root{--bg:#f6f7fb;--panel:#fff;--border:#eee;--text:#111;--muted:#666}
   *{box-sizing:border-box}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text)}
-  header,footer{padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center}
+  header,footer{padding:12px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center}
   header img{height:32px;margin-right:8px}
   header .right{margin-left:auto;display:flex;gap:12px;align-items:center}
-  main{max-width:1000px;margin:24px auto;padding:0 16px}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;margin:12px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  main{max-width:1100px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px;margin:16px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
   input,select,button{font:inherit;padding:10px 12px;border-radius:12px;border:1px solid #ccc}
-  table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden}
-  th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left}
+  label{display:block;font-size:12px;color:#444;margin:8px 0 4px}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
+  th,td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
   .row{display:flex;gap:12px;flex-wrap:wrap}
-  .pill{display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600}
-  .s1{background:#eee}
-  .ok{background:#d1fae5;color:#065f46}
-  .warn{background:#fef3c7;color:#92400e}
-  .bad{background:#fee2e2;color:#991b1b}
-  .btn{display:inline-block;text-decoration:none;border:none;cursor:pointer;border-radius:12px;padding:12px 16px;font-weight:600;transition:transform .06s ease, box-shadow .2s ease}
-  .btn:active{transform:translateY(1px)}
-  .btn.primary{background:#111;color:#fff;box-shadow:0 6px 16px rgba(0,0,0,.12)}
-  .btn.primary:hover{box-shadow:0 8px 20px rgba(0,0,0,.16)}
+  .col{display:flex;flex-direction:column;gap:8px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .btn{display:inline-block;text-decoration:none;border:none;cursor:pointer;border-radius:12px;padding:10px 14px;font-weight:600}
+  .btn.primary{background:#111;color:#fff}
   .btn.secondary{background:#fff;color:#111;border:1px solid #111}
-  .topbar-right{margin-left:auto}
-  .muted{color:var(--muted)}
-  .w100{width:100%}
-  form{margin:0}
+  .btn.danger{background:#991b1b;color:#fff}
+  .pill{display:inline-block;padding:4px 10px;border-radius:999px;font-weight:600;background:#eee}
+  .muted{color:#666}
   .center{text-align:center}
-  .time{font-size:12px;color:var(--muted)}
   footer{border-top:1px solid var(--border);border-bottom:none;justify-content:center}
 </style>
 </head>
@@ -142,12 +127,10 @@ function layout(title, body, { csrfToken, admin, user } = {}) {
   <img src="/logo.png" alt="Logo" onerror="this.style.display='none'">
   <strong>Portal Pagos</strong>
   <div class="right">
-    <span class="time">${timestamp} (America/El_Salvador)</span>
-    ${admin
-      ? `<span class="muted">Admin: ${admin}</span> <a class="btn secondary" href="/signout">Salir</a>`
-      : user
-      ? `<a class="btn secondary" href="/me">Mi estado</a> <a class="btn secondary" href="/signout">Salir</a>`
-      : `<a class="btn secondary" href="/login">Ingresar</a>`}
+    <span class="muted">${timestamp} (America/El_Salvador)</span>
+    ${admin ? `<span class="muted">Admin: ${admin}</span> <a class="btn secondary" href="/signout">Salir</a>`
+            : user ? `<a class="btn secondary" href="/me">Mi estado</a> <a class="btn secondary" href="/signout">Salir</a>`
+                   : `<a class="btn secondary" href="/login">Ingresar</a>`}
   </div>
 </header>
 <main>
@@ -158,15 +141,9 @@ ${body}
 }
 
 function statusPill(s) {
-  const map = {
-    "NO INICIADA":"bad",
-    "RECIBO EMITIDO":"warn",
-    "CCF RECIBIDO":"s1",
-    "CHEQUE LISTO":"s1",
-    "TRANSFERENCIA REALIZADA":"ok",
-  };
-  const cls = map[s] || "s1";
-  return `<span class="pill ${cls}">${s}</span>`;
+  const map = {"NO INICIADA":"#fee2e2","RECIBO EMITIDO":"#fef3c7","CCF RECIBIDO":"#e5e7eb","CHEQUE LISTO":"#e5e7eb","TRANSFERENCIA REALIZADA":"#d1fae5"};
+  const color = map[s] || "#e5e7eb";
+  return `<span class="pill" style="background:${color}">${s}</span>`;
 }
 
 // ---------- Public ----------
@@ -191,12 +168,11 @@ app.get("/login", (req, res) => {
     <h3>Ingreso de usuario</h3>
     <form method="POST" action="/login">
       <input type="hidden" name="_csrf" value="${req.csrfToken()}">
-      <div class="row">
-        <input class="w100" type="email" name="email" placeholder="tu-correo@ejemplo.com" required>
-        <input class="w100" type="password" name="code" placeholder="tu código de acceso" required>
-      </div>
-      <p class="muted">Tu administrador te entrega un código.</p>
-      <button class="btn primary">Entrar</button>
+      <label>Email</label>
+      <input class="w100" type="email" name="email" placeholder="tu-correo@ejemplo.com" required>
+      <label>Código de acceso</label>
+      <input class="w100" type="password" name="code" placeholder="tu código de acceso" required>
+      <div style="margin-top:12px"><button class="btn primary">Entrar</button></div>
     </form>
   </div>
   `));
@@ -213,12 +189,8 @@ app.post("/login", async (req, res) => {
 });
 
 // ---------- Logout unificado ----------
-app.all("/signout", (req, res) => {
-  req.session.destroy(() => res.redirect("/"));
-});
-app.all("/salir", (req, res) => {
-  req.session.destroy(() => res.redirect("/"));
-});
+app.all("/signout", (req, res) => { req.session.destroy(() => res.redirect("/")); });
+app.all("/salir", (req, res) => { req.session.destroy(() => res.redirect("/")); });
 
 app.get("/me", requireUser, (req, res) => {
   const u = db.prepare("SELECT name,email,project,status FROM users WHERE id=?").get(req.session.userId);
@@ -239,11 +211,11 @@ app.get("/admin/login", (req, res) => {
     <h3>Ingreso Admin</h3>
     <form method="POST" action="/admin/login">
       <input type="hidden" name="_csrf" value="${req.csrfToken()}">
-      <div class="row">
-        <input class="w100" type="email" name="email" placeholder="admin@local" required>
-        <input class="w100" type="password" name="password" placeholder="password" required>
-      </div>
-      <button class="btn primary">Entrar</button>
+      <label>Email</label>
+      <input class="w100" type="email" name="email" placeholder="admin@local" required>
+      <label>Contraseña</label>
+      <input class="w100" type="password" name="password" placeholder="password" required>
+      <div style="margin-top:12px"><button class="btn primary">Entrar</button></div>
     </form>
   </div>
   `));
@@ -257,25 +229,33 @@ app.post("/admin/login", async (req, res) => {
   req.session.admin = a.email;
   res.redirect("/admin");
 });
-app.get("/admin/logout", (req, res) => {
-  req.session.destroy(() => res.redirect("/"));
-});
 
-// ---------- Admin panel ----------
+// ---------- Admin panel + CRUD ----------
 app.get("/admin", requireAdmin, (req, res) => {
   const users = db.prepare("SELECT id,name,email,project,status FROM users ORDER BY name").all();
   const log = db.prepare("SELECT u.name as user_name, l.* FROM audit_log l JOIN users u ON u.id=l.user_id ORDER BY at DESC LIMIT 20").all();
+
   res.send(layout("Panel Admin", `
   <div class="card">
-    <h3>Usuarios</h3>
-    <form method="POST" action="/admin/users/create" class="row">
+    <h3>Crear usuario</h3>
+    <form method="POST" action="/admin/users/create">
       <input type="hidden" name="_csrf" value="${req.csrfToken()}">
+      <label>Nombre completo</label>
       <input name="name" placeholder="Nombre completo" required>
+      <label>Email</label>
       <input type="email" name="email" placeholder="correo@ejemplo.com" required>
+      <label>Proyecto</label>
       <input name="project" placeholder="Proyecto">
-      <input name="code" placeholder="Código de acceso (entregar al usuario)" required>
-      <button class="btn primary">Crear usuario</button>
+      <label>Código de acceso (entregar al usuario)</label>
+      <input name="code" placeholder="p.ej. 1234" required>
+      <div style="margin-top:12px">
+        <button class="btn primary">Crear usuario</button>
+      </div>
     </form>
+  </div>
+
+  <div class="card">
+    <h3>Usuarios</h3>
     <table>
       <thead><tr><th>Nombre</th><th>Email</th><th>Proyecto</th><th>Estatus</th><th>Acciones</th></tr></thead>
       <tbody>
@@ -286,15 +266,24 @@ app.get("/admin", requireAdmin, (req, res) => {
             <td>${u.project||"-"}</td>
             <td>${statusPill(u.status)}</td>
             <td>
-              <form method="POST" action="/admin/users/update" class="row" style="gap:6px;align-items:center">
-                <input type="hidden" name="_csrf" value="${req.csrfToken()}">
-                <input type="hidden" name="id" value="${u.id}">
-                <select name="status">
-                  ${STATUSES.map(s => `<option value="${s}" ${s===u.status?'selected':''}>${s}</option>`).join("")}
-                </select>
-                <input name="project" value="${u.project||''}" placeholder="Proyecto">
-                <button class="btn secondary">Guardar</button>
-              </form>
+              <div class="row" style="gap:6px;align-items:center">
+                <form method="POST" action="/admin/users/update-status">
+                  <input type="hidden" name="_csrf" value="${req.csrfToken()}">
+                  <input type="hidden" name="id" value="${u.id}">
+                  <select name="status">
+                    ${STATUSES.map(s => `<option value="${s}" ${s===u.status?'selected':''}>${s}</option>`).join("")}
+                  </select>
+                  <button class="btn secondary">Guardar</button>
+                </form>
+                <form method="GET" action="/admin/users/${u.id}/edit">
+                  <button class="btn secondary">Editar</button>
+                </form>
+                <form method="POST" action="/admin/users/delete" onsubmit="return confirm('¿Eliminar este usuario?');">
+                  <input type="hidden" name="_csrf" value="${req.csrfToken()}">
+                  <input type="hidden" name="id" value="${u.id}">
+                  <button class="btn danger">Eliminar</button>
+                </form>
+              </div>
             </td>
           </tr>
         `).join("")}
@@ -324,16 +313,44 @@ app.get("/admin", requireAdmin, (req, res) => {
     <h3>Cambiar clave de administrador</h3>
     <form method="POST" action="/admin/password">
       <input type="hidden" name="_csrf" value="${req.csrfToken()}">
-      <div class="row">
-        <input type="password" name="current" placeholder="Clave actual" required>
-        <input type="password" name="next" placeholder="Nueva clave" required>
-      </div>
-      <button class="btn secondary">Actualizar</button>
+      <label>Clave actual</label>
+      <input type="password" name="current" required>
+      <label>Nueva clave</label>
+      <input type="password" name="next" required>
+      <div style="margin-top:12px"><button class="btn secondary">Actualizar</button></div>
     </form>
   </div>
   `, { admin: req.session.admin }));
 });
 
+// Form de edición de usuario (vertical)
+app.get("/admin/users/:id/edit", requireAdmin, (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id=?").get(req.params.id);
+  if (!u) return res.send(layout("Error", `<div class="card">Usuario no existe. <a href="/admin">Volver</a></div>`));
+  res.send(layout("Editar usuario", `
+    <div class="card">
+      <h3>Editar usuario</h3>
+      <form method="POST" action="/admin/users/edit">
+        <input type="hidden" name="_csrf" value="${req.csrfToken()}">
+        <input type="hidden" name="id" value="${u.id}">
+        <label>Nombre completo</label>
+        <input name="name" value="${u.name}" required>
+        <label>Email</label>
+        <input type="email" name="email" value="${u.email}" required>
+        <label>Proyecto</label>
+        <input name="project" value="${u.project||''}">
+        <label>Restablecer código (opcional)</label>
+        <input name="code" placeholder="deja en blanco para no cambiar">
+        <div class="row" style="margin-top:12px;gap:8px">
+          <button class="btn primary">Guardar cambios</button>
+          <a class="btn secondary" href="/admin">Cancelar</a>
+        </div>
+      </form>
+    </div>
+  `, { admin: req.session.admin }));
+});
+
+// Acciones CRUD
 app.post("/admin/users/create", requireAdmin, async (req, res) => {
   const { name, email, project, code } = req.body;
   try {
@@ -346,16 +363,49 @@ app.post("/admin/users/create", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/admin/users/update", requireAdmin, (req, res) => {
-  const { id, status, project } = req.body;
+app.post("/admin/users/update-status", requireAdmin, (req, res) => {
+  const { id, status } = req.body;
   const u = db.prepare("SELECT status FROM users WHERE id=?").get(id);
   if (!u) return res.send(layout("Error", `<div class="card">Usuario no existe. <a href="/admin">Volver</a></div>`));
-  const upd = db.prepare("UPDATE users SET status=?, project=? WHERE id=?").run(status, project?.trim()||"", id);
+  const upd = db.prepare("UPDATE users SET status=? WHERE id=?").run(status, id);
   if (upd.changes) {
     db.prepare("INSERT INTO audit_log (id,user_id,admin_email,from_status,to_status) VALUES (?,?,?,?,?)")
       .run(nanoid(), id, req.session.admin, u.status, status);
   }
   res.redirect("/admin");
+});
+
+app.post("/admin/users/edit", requireAdmin, async (req, res) => {
+  const { id, name, email, project, code } = req.body;
+  const u = db.prepare("SELECT * FROM users WHERE id=?").get(id);
+  if (!u) return res.send(layout("Error", `<div class="card">Usuario no existe. <a href="/admin">Volver</a></div>`));
+  try {
+    let query, params;
+    if (code && code.trim() !== "") {
+      const hash = await bcrypt.hash(code.trim(), 10);
+      query = "UPDATE users SET name=?, email=?, project=?, access_code_hash=? WHERE id=?";
+      params = [name.trim(), email.trim().toLowerCase(), project?.trim()||"", hash, id];
+    } else {
+      query = "UPDATE users SET name=?, email=?, project=? WHERE id=?";
+      params = [name.trim(), email.trim().toLowerCase(), project?.trim()||"", id];
+    }
+    db.prepare(query).run(...params);
+    res.redirect("/admin");
+  } catch (e) {
+    res.send(layout("Error", `<div class="card">No se pudo actualizar: ${e.message} <a href="/admin">Volver</a></div>`));
+  }
+});
+
+app.post("/admin/users/delete", requireAdmin, (req, res) => {
+  const { id } = req.body;
+  try {
+    db.prepare("DELETE FROM users WHERE id=?").run(id);
+    // Opcional: borrar logs asociados
+    db.prepare("DELETE FROM audit_log WHERE user_id=?").run(id);
+    res.redirect("/admin");
+  } catch (e) {
+    res.send(layout("Error", `<div class="card">No se pudo eliminar: ${e.message} <a href="/admin">Volver</a></div>`));
+  }
 });
 
 app.post("/admin/password", requireAdmin, async (req, res) => {
@@ -368,7 +418,7 @@ app.post("/admin/password", requireAdmin, async (req, res) => {
   res.redirect("/admin");
 });
 
-// ---------- 404 handler ----------
+// 404 handler
 app.use((req, res) => {
   res.status(404).send(layout("No encontrado", `
     <div class="card center">
@@ -379,6 +429,5 @@ app.use((req, res) => {
   `));
 });
 
-// ---------- Start ----------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`> Running at http://localhost:${PORT}`));
